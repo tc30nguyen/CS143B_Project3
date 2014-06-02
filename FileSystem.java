@@ -4,55 +4,83 @@ public class FileSystem
 	private class OpenFileEntry //Open File Table
 	{
 		private char[] buffer;
+		private char[] fileDescriptor;
 		private int currentPosition;
 		private int descriptorIndex;
 
 		public OpenFileEntry()
 		{
-			buffer = new char[64];
+			buffer = new char[MAX_FILE_SIZE];
+			fileDescriptor = new char[FILE_DESCRIPTOR_SIZE];
 			currentPosition = 0;
 			descriptorIndex = -1;
 		}
 
-		public boolean write(char[] toWrite)
+		//not sure if deals with max file size correctly atm
+		public boolean writeFile(char[] memArea, int count)
 		{
-			for(int i = currentPosition, int j = 0; i < buffer.length && j < toWrite.length; i++)
+			int currentBlock = getCurrentBlock();
+			if(currentPosition + count >= fileDescriptor[0])
+				count = fileDescriptor[0] - currentPosition;
+
+			for(int i = 0; count > 0; count--, i++)
 			{
-				buffer[i] = toWrite[j];
+				buffer[currentPosition % BLOCK_LENGTH] = memArea[i];
+				currentPosition++;
+
+				if(currentPosition % BLOCK_LENGTH == 0)
+				{
+					iosystem.write_block(fileDescriptor[currentBlock++], buffer);
+					iosystem.read_block(fileDescriptor[currentBlock], buffer);
+				}
+			}
+
+			fileDescriptor[0] += count;
+		}
+
+		//handle case where currentPosition is > current file size
+		public void readFile(int[] memArea, count)
+		{
+			if(count >= MAX_FILE_SIZE)
+				throw InvalidInputException();
+
+			//limit the read count to the file's current size
+			if(currentPosition + count >= fileDescriptor[0])
+				count = fileDescriptor[0] - currentPosition;
+
+			//read the file's first ldisk block into the buffer
+			/*int currentBlock = getCurrentBlock;
+			iosystem.read_block(fileDescriptor[currentBlock], buffer);*/
+
+			//copy each requested char from the buffer into memArea
+			for(int i = 0; count > 0; count--, i++)
+			{
+				memArea[i] = buffer[currentPosition % BLOCK_LENGTH];
+				currentPosition++;
+
+				//read the next ldisk block into the buffer when necessary
+				if(currentPosition % BLOCK_LENGTH == 0)
+				{
+					iosystem.write_block(fileDescriptor[currentBlock++], buffer);
+					iosystem.read_block(fileDescriptor[currentBlock], buffer);
+				}
 			}
 		}
 
-		public char[] readFile(int memArea, count)
+		private int getCurrentBlock()
 		{
-			if(memArea >= 192)
-				throw InvalidInputException();
+			return currentPosition / BLOCK_LENGTH + 1;
+		}
 
-			//count is limited by the 192 byte max file size
-			if(memArea + count >= 192)
-				count = 191 - memArea;
-			char[] output = new char[count];
+		private void getFileDescriptor()
+		{
+			char[] temp = new char[BLOCK_LENGTH];
+			int descriptorLocation = ((descriptorIndex - 1) * FILE_DESCRIPTOR_SIZE);
+			int descriptorLocationInBlock = descriptorLocation % BLOCK_LENGTH;
+			iosystem.read(descriptorLocation / BLOCK_LENGTH, temp);
 
-			int descriptorBlockIndex = descriptorIndex / BLOCK_LENGTH; //get ldisk index of file descriptor
-			int descriptorLocationInBlock = descriptorIndex - descriptorBlockIndex * BLOCK_LENGTH;
-			iosystem.read(descriptorIndex, buffer);
-			char[] descriptor = Arrays.copyOfRange(buffer, locationInBlock, locationInBlock + FILE_DESCRIPTOR_SIZE);
-
-			diskIndex = memArea / BLOCK_LENGTH;
-			iosystem.read(descriptor[diskIndex], buffer);
-
-			//iterate through each index of each necessary disk block
-			for(int i = 0; i < count; i++)
-			{
-				int pos = (memArea + i) % BLOCK_LENGTH;
-				output[i] = buffer[pos];
-				
-				if(pos % BLOCK_LENGTH == (BLOCK_LENGTH - 1))
-				{
-					descriptorIndex++;
-					iosystem.read(descriptorIndex, buffer);
-				}
-			}
-			return output;
+			for(int i = 0; i < FILE_DESCRIPTOR_SIZE; i++)
+				fileDescriptor[i] = temp[descriptorLocationInBlock + i];
 		}
 
 		public char[] getBuffer()
@@ -72,6 +100,15 @@ public class FileSystem
 
 		public void setPosition(int pos)
 		{
+			int currentBlock = getCurrentBlock();
+			int newBlock = pos / BLOCK_LENGTH + 1;
+
+			if(newBlock != currentBlock)
+			{
+				iosystem.write_block(fileDescriptor[currentBlock], buffer);
+				iosystem.read_block(fileDescriptor[newBlock], buffer);
+			}
+
 			currentPosition = pos;
 		}
 
@@ -88,6 +125,7 @@ public class FileSystem
 
 	final int BLOCK_LENGTH = 64;
 	final int FILE_DESCRIPTOR_SIZE = 4; //1 for file length, 3 for the file's max 3 disk blocks
+	final int MAX_FILE_SIZE = 192;
 	final int NUM_OF_BLOCKS = 64;
 	int k; //first k blocks, reserved for the bitmap and file descriptors
 	IOSystem iosystem;
@@ -121,19 +159,19 @@ public class FileSystem
 
 	}
 
-	public char[] read(int OFTIndex, int memArea, int count)
+	public void read(int OFTIndex, int[] memArea, int count)
 	{
-		return oft[OFTIndex].readFile(memArea, count);
+		oft[OFTIndex].readFile(memArea, count);
 	}
 
-	public void write(int OFTIndex, int memArea, int count)
+	public void write(int OFTIndex, int[] memArea, int count)
 	{
-
+		oft[OFTIndex].writeFile(memArea, count);
 	}
 
-	public void lseek(int OFTIndex, int memArea)
+	public void lseek(int OFTIndex, int position)
 	{
-
+		oft[OFTIndex].setPosition(position);
 	}
 
 	public void directory()
