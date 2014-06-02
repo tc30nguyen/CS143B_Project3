@@ -1,7 +1,7 @@
 
 public class FileSystem 
 {
-	private class OpenFileEntry //Open File Table
+	private class OpenFileEntry
 	{
 		private char[] buffer;
 		private char[] fileDescriptor;
@@ -48,9 +48,7 @@ public class FileSystem
 			if(currentPosition + count >= fileDescriptor[0])
 				count = fileDescriptor[0] - currentPosition;
 
-			//read the file's first ldisk block into the buffer
-			/*int currentBlock = getCurrentBlock;
-			iosystem.read_block(fileDescriptor[currentBlock], buffer);*/
+			int currentBlock = getCurrentBlock;
 
 			//copy each requested char from the buffer into memArea
 			for(int i = 0; count > 0; count--, i++)
@@ -124,6 +122,7 @@ public class FileSystem
 	}
 
 	final int BLOCK_LENGTH = 64;
+	final int DIRECTORY_ENTRY_SIZE = 5;
 	final int FILE_DESCRIPTOR_SIZE = 4; //1 for file length, 3 for the file's max 3 disk blocks
 	final int MAX_FILE_SIZE = 192;
 	final int NUM_OF_BLOCKS = 64;
@@ -139,9 +138,44 @@ public class FileSystem
 		oft[0].setDescriptorIndex(0);
 	}
 
+	//descriptorIndex is the index within the block, not the descriptor ID
 	public void create(char[] symbolicFileName)
 	{
-		char[] buffer = Arrays.copyOf()
+		//get directory contents
+		char[] directory = new char[MAX_FILE_SIZE];
+		oft[0].setPosition(0);
+		oft[0].readFile(directory, MAX_FILE_SIZE);
+
+		//find free directory entry
+		int openIndex = -1;
+		for(int i = 0; i < directory.length && openIndex = -1; i += DIRECTORY_ENTRY_SIZE)
+		{
+			if(directory[i] == 0)
+				openIndex = i;
+		}
+
+		//find free file descriptor, fill first disk mapping with -1 if found
+		int descriptorIndex = -1;
+		char[] fileDescriptorBlock = new char[64];
+		for(int i = 0; i < 6 && descriptorIndex == -1; i++)
+		{
+			iosystem.read_block(i, fileDescriptorBlock);
+
+			for(int j = 0; j < fileDescriptorBlock.length && descriptorIndex == -1; j += FILE_DESCRIPTOR_SIZE)
+			{
+				//if the file descriptor's first disk mapping is 0 (-1 denotes empty allocated), it is free
+				if(fileDescriptorBlock[j + 1] == 0)
+				{
+					descriptorIndex = i * BLOCK_LENGTH + j;
+					fileDescriptorBlock[j + 1] = -1;
+				}
+			}
+		}
+
+		//fill directory entry
+		for(int i = 0; i < symbolicFileName.length; i++)
+			directory[openIndex + i] = symbolicFileName[i];
+		directory[openIndex + DIRECTORY_ENTRY_SIZE - 1] = descriptorIndex;
 	}
 
 	public void destroy(char[] symbolicFileName)
