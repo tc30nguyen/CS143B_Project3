@@ -146,14 +146,14 @@ public class FileSystem
 		}
 	}
 
-	final int BLOCK_LENGTH = 64;
-	final int DIRECTORY_ENTRY_SIZE = 5;
-	final int FILE_DESCRIPTOR_SIZE = 4; //1 for file length, 3 for the file's max 3 disk blocks
-	final int MAX_FILE_SIZE = 192;
-	final int NUM_OF_BLOCKS = 64;
-	final int K = 7; //first k blocks, reserved for the bitmap and file descriptors
-	IOSystem iosystem;
-	OpenFileEntry[] oft; //4 OpenFileEntrys, OpenFileEntry[0] is reserved for the directory file and 3 are can hold open files
+	private final int BLOCK_LENGTH = 64;
+	private final int DIRECTORY_ENTRY_SIZE = 5;
+	private final int FILE_DESCRIPTOR_SIZE = 4; //1 for file length, 3 for the file's max 3 disk blocks
+	private final int MAX_FILE_SIZE = 192;
+	private final int NUM_OF_BLOCKS = 64;
+	private final int K = 7; //first k blocks, reserved for the bitmap and file descriptors
+	private IOSystem iosystem;
+	private OpenFileEntry[] oft; //4 OpenFileEntrys, OpenFileEntry[0] is reserved for the directory file and 3 are can hold open files
 
 	public FileSystem()
 	{
@@ -167,32 +167,41 @@ public class FileSystem
 	public void create(char[] symbolicFileName)
 	{
 		//get directory contents
+		int directorySize = 0;
 		char[] directory = new char[MAX_FILE_SIZE];
 		oft[0].setPosition(0);
-		oft[0].readFile(directory, MAX_FILE_SIZE);
+		directorySize = oft[0].readFile(directory, MAX_FILE_SIZE);
 
 		//find free directory entry
-		int openIndex = -1;
-		for(int i = 0; i < directory.length && openIndex == -1; i += DIRECTORY_ENTRY_SIZE)
+		char openIndex = 0;
+		for(int i = 0; i < directory.length && openIndex == 0; i += DIRECTORY_ENTRY_SIZE)
 		{
+			//assume empty entry if null name
 			if(directory[i] == 0)
-				openIndex = i;
+				openIndex = (char) i;
+		}
+		
+		//if cannot find a free directory entry
+		if(openIndex == 0)
+		{
+			System.out.println("error");
+			return;
 		}
 
-		//find free file descriptor, fill first disk mapping with -1 if found
+		//iterate through each block of descriptors to find free file descriptor, fill first disk mapping with -1 if found
 		char descriptorIndex = 0;
 		char[] fileDescriptorBlock = new char[64];
-		for(int i = 0; i < 6 && descriptorIndex == -1; i++)
+		for(int i = 1; i < K && descriptorIndex == 0; i++)
 		{
 			iosystem.read_block(i, fileDescriptorBlock);
-
-			for(int j = 0; j < fileDescriptorBlock.length && descriptorIndex == -1; j += FILE_DESCRIPTOR_SIZE)
+			for(int j = 0; j < fileDescriptorBlock.length && descriptorIndex == 0; j += FILE_DESCRIPTOR_SIZE)
 			{
 				//if the file descriptor's first disk mapping is 0 (\uffff denotes empty allocated), it is free
 				if(fileDescriptorBlock[j + 1] == 0)
 				{
 					descriptorIndex = (char) (i * BLOCK_LENGTH + j);
 					fileDescriptorBlock[j + 1] = '\uffff';
+					iosystem.write_block(i, fileDescriptorBlock);
 				}
 			}
 		}
@@ -201,6 +210,7 @@ public class FileSystem
 		for(int i = 0; i < symbolicFileName.length; i++)
 			directory[openIndex + i] = symbolicFileName[i];
 		directory[openIndex + DIRECTORY_ENTRY_SIZE - 1] = descriptorIndex;
+		oft[0].writeFile(directory, directory.length);
 	}
 
 	public boolean destroy(char[] symbolicFileName)
@@ -261,7 +271,7 @@ public class FileSystem
 
 		if(directoryEntryIndex == -1)
 			return -1;
-
+		System.out.println("directoryEntryIndex is " + directoryEntryIndex);
 		//read directory entry and get the file descriptor index
 		lseek(0, directoryEntryIndex + DIRECTORY_ENTRY_SIZE - 1);
 		char[] temp = new char[1];
