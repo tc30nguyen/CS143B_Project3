@@ -1,3 +1,5 @@
+import java.io.FileDescriptor;
+import java.nio.file.FileVisitResult;
 import java.util.Arrays;
 
 
@@ -21,26 +23,22 @@ public class FileSystem
 		//not sure if deals with max file size correctly atm
 		public int writeFile(char[] memArea, int count)
 		{
-			int currentBlock = getCurrentDescriptorMapIndex();
-			int bytesToWrite = 0;
-			if(currentPosition + count >= fileDescriptor[0])
-				count = fileDescriptor[0] - currentPosition;
-			bytesToWrite = count;
-
-			for(int i = 0; count > 0; count--, i++)
+			int currentDescriptorIndex = getCurrentDescriptorMapIndex();
+			if(currentPosition + count >= MAX_FILE_SIZE)
+				count = MAX_FILE_SIZE - currentPosition;
+			for(int i = 0; i < count; i++, currentPosition++)
 			{
-				buffer[currentPosition % BLOCK_LENGTH] = memArea[i];
-				currentPosition++;
-
-				if(currentPosition % BLOCK_LENGTH == 0)
+				if(i != 0 && currentPosition % BLOCK_LENGTH == 0)
 				{
-					iosystem.write_block(getBlockIndex(currentBlock++), buffer);
-					iosystem.read_block(getBlockIndex(currentBlock), buffer);
+					iosystem.write_block(getBlockIndex(currentDescriptorIndex++), buffer);
+					iosystem.read_block(getBlockIndex(currentDescriptorIndex), buffer);
 				}
-			}
 
-			fileDescriptor[0] += bytesToWrite;
-			return bytesToWrite;
+				buffer[currentPosition % BLOCK_LENGTH] = memArea[i];
+			}
+			System.out.println(buffer[5] == 'a');
+			fileDescriptor[0] += count;
+			return count;
 		}
 
 		//handle case where currentPosition is > current file size
@@ -57,17 +55,16 @@ public class FileSystem
 			int currentBlock = getCurrentDescriptorMapIndex();
 
 			//copy each requested char from the buffer into memArea
-			for(int i = 0; count > 0; count--, i++)
+			for(int i = 0; count > 0; count--, i++, currentPosition++)
 			{
-				memArea[i] = buffer[currentPosition % BLOCK_LENGTH];
-				currentPosition++;
-
 				//read the next ldisk block into the buffer when necessary
-				if(currentPosition % BLOCK_LENGTH == 0)
+				if(i != 0 && currentPosition % BLOCK_LENGTH == 0)
 				{
 					iosystem.write_block(getBlockIndex(currentBlock++), buffer);
 					iosystem.read_block(getBlockIndex(currentBlock), buffer);
 				}
+
+				memArea[i] = buffer[currentPosition % BLOCK_LENGTH];
 			}
 
 			return numOfBytesRead;
@@ -77,22 +74,31 @@ public class FileSystem
 		{
 			iosystem.write_block(getBlockIndex(getCurrentDescriptorMapIndex()), buffer);
 		}
-
-		private char getBlockIndex(int currentBlock)
+		
+		public void writeToDisk()
 		{
-			if(fileDescriptor[currentBlock] == 0 || fileDescriptor[currentBlock] == -1)
+			int currentDescriptorIndex = getCurrentDescriptorMapIndex();
+			iosystem.write_block(getBlockIndex(currentDescriptorIndex), buffer);
+		}
+
+		//return the block mapped to a currentDescriptorIndex, allocating one if it is not mapped
+		private char getBlockIndex(int currentDescriptorIndex)
+		{
+			if(fileDescriptor[currentDescriptorIndex] == 0 || fileDescriptor[currentDescriptorIndex] == '\uffff')
 			{
+				fileDescriptor[currentDescriptorIndex] = 0;
 				char[] bitmap = new char[64];
 				iosystem.read_block(0, bitmap);
 
 				//search bitmap for an open block, skipping the reserved K blocks
-				for(int i = K; i < bitmap.length; i++)
+				for(int i = K; i < bitmap.length && fileDescriptor[currentDescriptorIndex] == 0; i++)
 				{
 					if(bitmap[i] == 0)
 					{
-						fileDescriptor[currentBlock] = (char) i;
+						fileDescriptor[currentDescriptorIndex] = (char) i;
 						bitmap[i] = 1;
-
+						iosystem.write_block(0, bitmap);
+						
 						//clear the newly allocated block to initialize
 						char[] clearBlock = new char[BLOCK_LENGTH];
 						iosystem.write_block(i, clearBlock);
@@ -100,7 +106,7 @@ public class FileSystem
 				}
 			}
 			
-			return fileDescriptor[currentBlock];
+			return fileDescriptor[currentDescriptorIndex];
 		}
 
 		private void getFileDescriptor()
@@ -120,13 +126,13 @@ public class FileSystem
 
 		public void setPosition(int pos)
 		{
-			int currentBlock = getCurrentDescriptorMapIndex();
-			int newBlock = pos / BLOCK_LENGTH + 1;
+			int currentDescriptorIndex = getCurrentDescriptorMapIndex();
+			int newDescriptorIndex = pos / BLOCK_LENGTH + 1;
 
-			if(newBlock != currentBlock)
+			if(newDescriptorIndex != currentDescriptorIndex)
 			{
-				iosystem.write_block(fileDescriptor[currentBlock], buffer);
-				iosystem.read_block(fileDescriptor[newBlock], buffer);
+				iosystem.write_block(fileDescriptor[currentDescriptorIndex], buffer);
+				iosystem.read_block(fileDescriptor[newDescriptorIndex], buffer);
 			}
 
 			currentPosition = pos;
@@ -137,12 +143,26 @@ public class FileSystem
 			descriptorIndex = fileDescriptorIndex;
 			getFileDescriptor();
 			currentPosition = 0;
-			iosystem.read_block(fileDescriptor[1], buffer); //read ahead
+			iosystem.read_block(getBlockIndex(1), buffer); //read ahead
 		}
 		
+		//returns descriptor map index, rewinds to 0 if position reaches max file size
 		private int getCurrentDescriptorMapIndex()
 		{
-			return currentPosition / BLOCK_LENGTH + 1;
+			int currentDescriptorIndex = currentPosition / BLOCK_LENGTH + 1;
+			
+			//rewind to 0 if reached max file size
+			if(currentDescriptorIndex == (MAX_FILE_SIZE / BLOCK_LENGTH + 1))
+			{
+				currentDescriptorIndex--;
+				iosystem.write_block(fileDescriptor[currentDescriptorIndex], buffer);
+
+				currentPosition = 0;
+				currentDescriptorIndex = 1;
+				iosystem.read_block(fileDescriptor[currentDescriptorIndex], buffer);
+			}
+
+			return currentDescriptorIndex;
 		}
 	}
 
@@ -211,6 +231,7 @@ public class FileSystem
 			directory[openIndex + i] = symbolicFileName[i];
 		directory[openIndex + DIRECTORY_ENTRY_SIZE - 1] = descriptorIndex;
 		oft[0].writeFile(directory, directory.length);
+		oft[0].writeToDisk();
 	}
 
 	public boolean destroy(char[] symbolicFileName)
