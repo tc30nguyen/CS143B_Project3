@@ -19,7 +19,8 @@ public class IOSystem
 
 	public void read_block(int index, char[] readTo)
 	{
-		readTo = Arrays.copyOf(ldisk[index], blockLength);
+		for(int i = 0; i < blockLength; i++)
+			readTo[i] = ldisk[index][i];
 	}
 
 	public void write_block(int index, char[] readFrom)
