@@ -33,7 +33,7 @@ public class Shell
 						{
 							name = lineScanner.next();
 							fileSystem.create(name.toCharArray());
-							System.out.println("file" + name + " created");
+							System.out.println("file " + name + " created");
 						}
 						else
 							System.out.println("error");
@@ -50,7 +50,7 @@ public class Shell
 						{
 							name = lineScanner.next();
 							OFTIndex = fileSystem.open(name.toCharArray());
-							System.out.println("file" + name + " opened, index=" + OFTIndex);
+							System.out.println("file " + name + " opened, index=" + OFTIndex);
 						}
 						else
 							System.out.println("error");
@@ -107,7 +107,7 @@ public class Shell
 							Arrays.fill(buffer, toWrite);
 							count = fileSystem.write(OFTIndex, buffer, count);
 
-							System.out.println(count + "bytes written");
+							System.out.println(count + " bytes written");
 						}
 						else
 							System.out.println("error");
