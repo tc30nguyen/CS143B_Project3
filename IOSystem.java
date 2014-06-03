@@ -19,14 +19,12 @@ public class IOSystem
 
 	public void read_block(int index, char[] readTo)
 	{
-		char[] toRead = ldisk[index];
-		readTo = Arrays.copyOf(toRead, toRead.length);
+		readTo = Arrays.copyOf(ldisk[index], blockLength);
 	}
 
 	public void write_block(int index, char[] readFrom)
 	{
-		char[] toWrite = ldisk[index];
-		toWrite = Arrays.copyOf(readFrom, toWrite.length);
+		ldisk[index] = Arrays.copyOf(readFrom, blockLength);
 	}
 
 	public void save(String fileName)
