@@ -1,3 +1,5 @@
+import java.util.Arrays;
+
 
 public class FileSystem 
 {
@@ -19,7 +21,7 @@ public class FileSystem
 		//not sure if deals with max file size correctly atm
 		public int writeFile(char[] memArea, int count)
 		{
-			int currentBlock = getCurrentBlock();
+			int currentBlock = getCurrentDescriptorMapIndex();
 			int bytesToWrite = 0;
 			if(currentPosition + count >= fileDescriptor[0])
 				count = fileDescriptor[0] - currentPosition;
@@ -32,8 +34,8 @@ public class FileSystem
 
 				if(currentPosition % BLOCK_LENGTH == 0)
 				{
-					iosystem.write_block(fileDescriptor[currentBlock++], buffer);
-					iosystem.read_block(fileDescriptor[currentBlock], buffer);
+					iosystem.write_block(getBlockIndex(currentBlock++), buffer);
+					iosystem.read_block(getBlockIndex(currentBlock), buffer);
 				}
 			}
 
@@ -52,7 +54,7 @@ public class FileSystem
 				count = fileDescriptor[0] - currentPosition;
 			int numOfBytesRead = count;
 
-			int currentBlock = getCurrentBlock();
+			int currentBlock = getCurrentDescriptorMapIndex();
 
 			//copy each requested char from the buffer into memArea
 			for(int i = 0; count > 0; count--, i++)
@@ -63,12 +65,42 @@ public class FileSystem
 				//read the next ldisk block into the buffer when necessary
 				if(currentPosition % BLOCK_LENGTH == 0)
 				{
-					iosystem.write_block(fileDescriptor[currentBlock++], buffer);
-					iosystem.read_block(fileDescriptor[currentBlock], buffer);
+					iosystem.write_block(getBlockIndex(currentBlock++), buffer);
+					iosystem.read_block(getBlockIndex(currentBlock), buffer);
 				}
 			}
 
 			return numOfBytesRead;
+		}
+		
+		public void close()
+		{
+			iosystem.write_block(getBlockIndex(getCurrentDescriptorMapIndex()), buffer);
+		}
+
+		private char getBlockIndex(int currentBlock)
+		{
+			if(fileDescriptor[currentBlock] == 0 || fileDescriptor[currentBlock] == -1)
+			{
+				char[] bitmap = new char[64];
+				iosystem.read_block(0, bitmap);
+
+				//search bitmap for an open block, skipping the reserved K blocks
+				for(int i = K; i < bitmap.length; i++)
+				{
+					if(bitmap[i] == 0)
+					{
+						fileDescriptor[currentBlock] = (char) i;
+						bitmap[i] = 1;
+
+						//clear the newly allocated block to initialize
+						char[] clearBlock = new char[BLOCK_LENGTH];
+						iosystem.write_block(i, clearBlock);
+					}
+				}
+			}
+			
+			return fileDescriptor[currentBlock];
 		}
 
 		private void getFileDescriptor()
@@ -81,9 +113,14 @@ public class FileSystem
 				fileDescriptor[i] = temp[descriptorLocationInBlock + i];
 		}
 
+		public int getFileDescriptorIndex()
+		{
+			return descriptorIndex;
+		}
+
 		public void setPosition(int pos)
 		{
-			int currentBlock = getCurrentBlock();
+			int currentBlock = getCurrentDescriptorMapIndex();
 			int newBlock = pos / BLOCK_LENGTH + 1;
 
 			if(newBlock != currentBlock)
@@ -103,19 +140,9 @@ public class FileSystem
 			iosystem.read_block(fileDescriptor[1], buffer); //read ahead
 		}
 		
-		private int getCurrentBlock()
+		private int getCurrentDescriptorMapIndex()
 		{
 			return currentPosition / BLOCK_LENGTH + 1;
-		}
-		
-		public int getPosition()
-		{
-			return currentPosition;
-		}
-		
-		public int getDescriptorIndex()
-		{
-			return descriptorIndex;
 		}
 	}
 
@@ -176,41 +203,70 @@ public class FileSystem
 		directory[openIndex + DIRECTORY_ENTRY_SIZE - 1] = descriptorIndex;
 	}
 
-	public void destroy(char[] symbolicFileName)
+	public boolean destroy(char[] symbolicFileName)
 	{
+		char[] temp = new char[BLOCK_LENGTH];
+		char fileDescriptorIndex = 0;
+		int directoryEntryIndex = searchDirectory(symbolicFileName);
 
+		if(directoryEntryIndex == -1)
+			return false;
+
+		//get file descriptor index from the directory
+		lseek(0, directoryEntryIndex + DIRECTORY_ENTRY_SIZE - 1);
+		oft[0].readFile(temp, 1);
+		fileDescriptorIndex = temp[0];
+
+		//if the file is in the OFT, close it
+		for(int i = 0; i < oft.length; i++)
+		{
+			if(oft[i] != null && fileDescriptorIndex == oft[i].getFileDescriptorIndex())
+				close(i);
+		}
+
+		//clear the directory entry
+		Arrays.fill(temp, (char) 0);
+		lseek(0, directoryEntryIndex);
+		oft[0].writeFile(temp, DIRECTORY_ENTRY_SIZE);
+
+		//get disk mapping info from the file descriptor
+		int fileDescriptorStart = fileDescriptorIndex % BLOCK_LENGTH;
+		char[] diskmap = new char[FILE_DESCRIPTOR_SIZE - 1];
+		iosystem.read_block((fileDescriptorIndex / BLOCK_LENGTH) + 1, temp);
+		diskmap = Arrays.copyOfRange(temp, fileDescriptorStart + 1, fileDescriptorStart + FILE_DESCRIPTOR_SIZE - 1);
+		
+		//free file descriptor
+		Arrays.fill(temp, (char) fileDescriptorStart, (char) (fileDescriptorStart + FILE_DESCRIPTOR_SIZE - 1), (char) 0);
+		iosystem.write_block((fileDescriptorIndex / BLOCK_LENGTH) + 1, temp);
+
+		//use diskmap info to find blocks allocated to this file and deallocate them in the bitmap
+		iosystem.read_block(0, temp); //read bitmap into temp
+		for(int i = 0; i < diskmap.length; i++)
+		{
+			if(diskmap[i] > 0)
+				temp[diskmap[i]] = 0;
+		}
+		iosystem.write_block(0, temp); //write changes back into the iosystem
+		
+		return true;
 	}
 
 	//opens a file and into the oft. If no open slots are found, returns -1
 	public int open(char[] symbolicFileName)
 	{
-		char[] directory = new char[MAX_FILE_SIZE];
+		int directoryEntryIndex = 0;
 		char fileDescriptorIndex = 0;
 		int OFTIndex = -1;
+		directoryEntryIndex = searchDirectory(symbolicFileName);
 
-		//get directory contents
-		oft[0].setPosition(0);
-		oft[0].readFile(directory, MAX_FILE_SIZE);
-
-		//find matching directory entry
-		for(int i = DIRECTORY_ENTRY_SIZE; i < directory.length && fileDescriptorIndex == 0; i += DIRECTORY_ENTRY_SIZE)
-		{
-			//first char matches, continue comparing name
-			if(directory[i] == symbolicFileName[0])
-			{
-				boolean match = true;
-				for(int j = 1; j < symbolicFileName.length && match; i++)
-				{
-					if(directory[j + i] != symbolicFileName[j])
-						match = false;
-				}
-				if(match)
-					fileDescriptorIndex = (char) i;
-			}
-		}
-		if(fileDescriptorIndex == 0)
+		if(directoryEntryIndex == -1)
 			return -1;
-			//throw FileNotFoundException();
+
+		//read directory entry and get the file descriptor index
+		lseek(0, directoryEntryIndex + DIRECTORY_ENTRY_SIZE - 1);
+		char[] temp = new char[1];
+		oft[0].readFile(temp, 1);
+		fileDescriptorIndex = temp[0];
 
 		//find free open file entry
 		for(int i = 0; i < oft.length && OFTIndex == -1; i++)
@@ -218,6 +274,7 @@ public class FileSystem
 			if(oft[i] == null)
 			{
 				OFTIndex = i;
+				oft[i] = new OpenFileEntry();
 				oft[i].setNewFile(fileDescriptorIndex);
 			}
 		}
@@ -227,7 +284,8 @@ public class FileSystem
 
 	public void close(int OFTIndex)
 	{
-
+		oft[OFTIndex].close();
+		oft[OFTIndex] = null;
 	}
 
 	public int read(int OFTIndex, char[] memArea, int count)
@@ -245,9 +303,36 @@ public class FileSystem
 		oft[OFTIndex].setPosition(position);
 	}
 
-	//public char[][] directory()
+	//return list of files by reading through the directory
+	public void directory()
 	{
-		//print file names
+		//read directory from memory
+		char[] directory = new char[MAX_FILE_SIZE];
+		oft[0].setPosition(0);
+		oft[0].readFile(directory, MAX_FILE_SIZE);
+
+		//iterate through directory, printing each file name
+		for(int i = 0; i < MAX_FILE_SIZE; i++)
+		{
+			char current = directory[i];
+
+			//if first name index is blank, assume there is no file and move on to the next entry
+			if(current == 0 && i % DIRECTORY_ENTRY_SIZE == 0)
+				i += DIRECTORY_ENTRY_SIZE;
+			else
+			{
+				//print the current char if it's not blank. The last index in an entry is not reserved for name
+				if(current != 0 && (i % DIRECTORY_ENTRY_SIZE) != (DIRECTORY_ENTRY_SIZE - 1))
+					System.out.print(current);
+
+				//if a blank is reached, assume name has ended and move on the next entry
+				else
+				{
+					System.out.print(" ");
+					i += DIRECTORY_ENTRY_SIZE - (i % DIRECTORY_ENTRY_SIZE);
+				}
+			}
+		}
 	}
 
 	public void save(String fileName)
@@ -255,5 +340,30 @@ public class FileSystem
 		for(int i = 0; i < oft.length; i++)
 			close(i);
 		iosystem.save(fileName);
+	}
+
+	//find matching directory entry and return its index, returns -1 if no match is found
+	private int searchDirectory(char[] symbolicFileName)
+	{
+		char[] directory = new char[MAX_FILE_SIZE];
+		oft[0].setPosition(0);
+		oft[0].readFile(directory, MAX_FILE_SIZE);
+
+		for(int i = DIRECTORY_ENTRY_SIZE; i < directory.length; i += DIRECTORY_ENTRY_SIZE)
+		{
+			//first char matches, continue comparing name
+			if(directory[i] == symbolicFileName[0])
+			{
+				boolean match = true;
+				for(int j = 1; j < symbolicFileName.length && match; i++)
+				{
+					if(directory[j + i] != symbolicFileName[j])
+						match = false;
+				}
+				if(match)
+					return i;
+			}
+		}
+		return -1;
 	}
 }
