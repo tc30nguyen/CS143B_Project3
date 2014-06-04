@@ -37,7 +37,9 @@ public class FileSystem
 
 				buffer[currentPosition % BLOCK_LENGTH] = memArea[i];
 			}
+			
 			fileDescriptor[0] += count;
+			updateFileDescriptor();
 			return count;
 		}
 
@@ -48,6 +50,7 @@ public class FileSystem
 				return -1;
 
 			//limit the read count to the file's current size
+			getFileDescriptor();
 			if(currentPosition + count >= fileDescriptor[0])
 				count = fileDescriptor[0] - currentPosition;
 			int numOfBytesRead = count;
@@ -113,17 +116,23 @@ public class FileSystem
 						iosystem.write_block(i, clearBlock);
 						
 						//write the updated file descriptor to disk
-						int blockIndex = descriptorIndex / BLOCK_LENGTH + 1;
-						iosystem.read_block(blockIndex, clearBlock);
-						int indexInBlock = descriptorIndex % BLOCK_LENGTH;
-						for(int j = 0; j < FILE_DESCRIPTOR_SIZE; j++)
-							clearBlock[indexInBlock + j] = fileDescriptor[j];
-						iosystem.write_block(blockIndex, clearBlock);
+						updateFileDescriptor();
 					}
 				}
 			}
 			
 			return fileDescriptor[currentDescriptorIndex];
+		}
+		
+		private void updateFileDescriptor()
+		{
+			char[] temp = new char[64];
+			int blockIndex = descriptorIndex / BLOCK_LENGTH + 1;
+			iosystem.read_block(blockIndex, temp);
+			int indexInBlock = descriptorIndex % BLOCK_LENGTH;
+			for(int j = 0; j < FILE_DESCRIPTOR_SIZE; j++)
+				temp[indexInBlock + j] = fileDescriptor[j];
+			iosystem.write_block(blockIndex, temp);
 		}
 
 		private void getFileDescriptor()
