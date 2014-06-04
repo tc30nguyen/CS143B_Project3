@@ -3,15 +3,10 @@ import java.util.Scanner;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.io.Reader;
-import java.io.UnsupportedEncodingException;
 
 public class IOSystem 
 {
@@ -68,25 +63,27 @@ public class IOSystem
 			bw.write(sb.toString());
 			bw.close();
 		}
+
 		catch(IOException e)
 		{
 			e.printStackTrace();
 		}
 	}
 	
+	//copy an input file into the new ldisk
 	private void initializeLDisk(String inputFileName)
 	{
-		BufferedReader reader = null;
 		try
 		{
-			reader = new BufferedReader(new FileReader(inputFileName));
+			BufferedReader reader = new BufferedReader(new FileReader(inputFileName));
 			
+			//iterate through input file by block (line) and copy contents into ldisk
 			for(int i = 0; i < numOfBlocks; i++)
 			{
 				String currentLine = reader.readLine();
-				
 				if(currentLine != null && !currentLine.isEmpty())
 				{
+					//iterate through each line, convert the int back to char and copy contents into the current block
 					Scanner lineScanner = new Scanner(currentLine);
 					for(int j = 0; j < blockLength; j++)
 					{
@@ -100,82 +97,19 @@ public class IOSystem
 					}
 					lineScanner.close();
 				}
-				else {}
 			}
+		
 			reader.close();
 		}
+
 		catch (FileNotFoundException e)
 		{
 			e.printStackTrace();
 		}
+
 		catch (IOException e) 
 		{
 			e.printStackTrace();
 		}
 	}
-
-	/*public void initializeLDisk(String filename)
-	{
-		Reader reader = null;
-		try 
-		{
-			reader = new InputStreamReader(new FileInputStream(filename), "UTF-8");
-		} 
-		catch (UnsupportedEncodingException e) 
-		{
-			e.printStackTrace();
-		} 
-		catch (FileNotFoundException e) 
-		{
-			e.printStackTrace();
-		}
-
-		BufferedReader buffer = new BufferedReader(reader);
-		try 
-		{
-			for (int i = 0; i < numOfBlocks; i++)
-			{
-				char[] memArray = new char[blockLength];
-				for (int j = 0; j < blockLength; j++)
-				memArray[j] = buffer.readLine().charAt(0);
-				iosystem.writeBlock(i, memArray);
-			}
-		}
-		catch (IOException e) 
-		{
-			e.printStackTrace();
-		}
-	}
-
-	public void save(String inputFileName)
-	{
-		PrintWriter writer = null;
-		try 
-		{
-			writer = new PrintWriter(inputFileName, "UTF-8");
-			for (int i = 0; i < numOfBlocks; i++)
-			{
-				/*char[] memArray = new char[b];
-				iosystem.readBlock(i, memArray);
-
-				for(char c : memArray)
-					writer.println(c);
-				for(int j = 0; j < blockLength; j++)
-				{
-					System.out.println("i: " + i + ", j: " + j);
-					writer.println(ldisk[i][j]);
-				}
-			}
-		} 
-		catch (FileNotFoundException e) 
-		{
-			e.printStackTrace();
-		} 
-		catch (UnsupportedEncodingException e) 
-		{
-			e.printStackTrace();
-		}
-
-		writer.close();
-	}*/
 }
