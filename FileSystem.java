@@ -1,7 +1,4 @@
-import java.io.FileDescriptor;
-import java.nio.file.FileVisitResult;
 import java.util.Arrays;
-
 
 public class FileSystem 
 {
@@ -219,13 +216,17 @@ public class FileSystem
 	}
 
 	//descriptorIndex is the index within the block, not the descriptor ID
-	public void create(char[] symbolicFileName)
+	public boolean create(char[] symbolicFileName)
 	{
 		//get directory contents
 		char[] directory = new char[MAX_FILE_SIZE];
 		oft[0].setPosition(0);
 		oft[0].readFile(directory, MAX_FILE_SIZE);
 
+		//check if file already exists
+		if(searchDirectory(symbolicFileName) != -1)
+			return false;
+		
 		//find free directory entry
 		char openIndex = '\uffff';
 		for(int i = 0; i < directory.length && openIndex == '\uffff'; i += DIRECTORY_ENTRY_SIZE)
@@ -237,10 +238,7 @@ public class FileSystem
 		
 		//if cannot find a free directory entry
 		if(openIndex == '\uffff')
-		{
-			System.out.println("error");
-			return;
-		}
+			return false;
 
 		//iterate through each block of descriptors to find free file descriptor, fill first disk mapping with -1 if found
 		char descriptorIndex = 0;
@@ -266,6 +264,8 @@ public class FileSystem
 		directory[openIndex + DIRECTORY_ENTRY_SIZE - 1] = descriptorIndex;
 		oft[0].writeFile(directory, directory.length);
 		oft[0].writeToDisk();
+		
+		return true;
 	}
 
 	public boolean destroy(char[] symbolicFileName)
