@@ -27,13 +27,13 @@ public class Shell
 
 				switch(command)
 				{
-					case "cd":
+					case "cr":
 						String name;
 						if(lineScanner.hasNext())
 						{
 							name = lineScanner.next();
 							fileSystem.create(name.toCharArray());
-							System.out.println("file " + name + " created");
+							System.out.println(name + " created");
 						}
 						else
 							System.out.println("error");
@@ -50,14 +50,21 @@ public class Shell
 						{
 							name = lineScanner.next();
 							OFTIndex = fileSystem.open(name.toCharArray());
-							System.out.println("file " + name + " opened, index=" + OFTIndex);
+							System.out.println(name + " opened " + OFTIndex);
 						}
 						else
 							System.out.println("error");
 						break;
 
 					case "cl":
-						System.out.println("NOT DONE");
+						if(lineScanner.hasNextInt())
+						{
+							OFTIndex = lineScanner.nextInt();
+							fileSystem.close(OFTIndex);
+							System.out.println("file " + OFTIndex + " closed");
+						}
+						else
+							System.out.println("error");
 						break;
 
 					case "rd":
@@ -74,7 +81,6 @@ public class Shell
 								bytesToRead = fileSystem.read(OFTIndex, buffer, bytesToRead);
 
 								//print output
-								System.out.print(bytesToRead + " bytes read: ");
 								for(int i = 0; i < bytesToRead; i++)
 									System.out.print(buffer[i]);
 								System.out.print("\n");
@@ -106,8 +112,11 @@ public class Shell
 							buffer = new char[count];
 							Arrays.fill(buffer, toWrite);
 							count = fileSystem.write(OFTIndex, buffer, count);
-
-							System.out.println(count + " bytes written");
+							
+							if(count == -1)
+								System.out.println("error");
+							else
+								System.out.println(count + " bytes written");
 						}
 						else
 							System.out.println("error");
@@ -135,10 +144,9 @@ public class Shell
 					case "in":
 						String fileName;
 						if(lineScanner.hasNext())
-						{
-							System.out.println("NOT DONE");
-							//fileSystem = new FileSystem(lineScanner.next());
-							//System.out.println("disk restored");
+						{;
+							fileSystem = new FileSystem(lineScanner.next());
+							System.out.println("disk restored");
 						}
 						else
 						{
@@ -153,7 +161,12 @@ public class Shell
 						{
 							fileName = lineScanner.next();
 							fileSystem.save(fileName);
+							System.out.println("disk saved");
 						}
+						break;
+						
+					case "dr":
+						fileSystem.directory();
 						break;
 
 					default:
